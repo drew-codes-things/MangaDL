@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "star-manga-dl"
+version = "1.0.0"
+description = "Download manga from atsu.moe as CBZ with ComicInfo.xml metadata."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = ["requests", "tqdm"]
+
+[project.scripts]
+manga-dl = "manga_dl:main"
+
+[tool.setuptools]
+py-modules = ["manga_dl"]

@@ -1,0 +1,12 @@
+{
+  "download_path": "./downloads",
+  "temp_path": "./temp",
+  "manga_workers": 3,
+  "page_workers": 16,
+  "retry_attempts": 3,
+  "retry_delay_seconds": 5,
+  "request_timeout_seconds": 30,
+  "menu_enabled": true,
+  "ids_file": "manga_ids.txt",
+  "allow_adult": false
+}
