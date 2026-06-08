@@ -286,7 +286,7 @@ class MangaDownloader:
                 parts = path.split("/")
                 if len(parts) >= 2 and parts[1].strip():
                     return parts[1].strip()
-                return ""
+            return ""
         return value
 
     def load_config(self):
@@ -381,7 +381,7 @@ class MangaDownloader:
                 else:
                     int_part, frac_part = str(num).split(".")
                     num_str = f"{int(int_part):03d}.{frac_part}"
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 num_str = "000"
         suffix = "_INCOMPLETE" if incomplete else ""
         return f"Chapter {num_str}{suffix}.cbz"
@@ -516,10 +516,14 @@ class MangaDownloader:
                     fnum = float(num)
                     if fnum != int(fnum):
                         group_decimals[gid] += 1
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, OverflowError):
                     pass
             created = ch.get("createdAt")
             if created is not None:
+                try:
+                    created = float(created)
+                except (ValueError, TypeError):
+                    created = float("inf")
                 if gid not in group_oldest or created < group_oldest[gid]:
                     group_oldest[gid] = created
         max_count = max(group_count.values())
@@ -549,7 +553,12 @@ class MangaDownloader:
                 chapters_by_number[key] = ch
             elif ch.get("scanId") == preferred_group:
                 chapters_by_number[key] = ch
-        numbered_chapters = sorted(chapters_by_number.values(), key=lambda c: float(c.get("number") or 0))
+        def sort_key(c):
+            try:
+                return float(c.get("number") or 0)
+            except (TypeError, ValueError):
+                return float("inf")
+        numbered_chapters = sorted(chapters_by_number.values(), key=sort_key)
         return numbered_chapters + unnumbered_chapters
 
     def filter_alternative_names(self, names: list) -> list:
@@ -762,7 +771,12 @@ class MangaDownloader:
         futures_map = {}
         with ThreadPoolExecutor(max_workers=self.config["page_workers"]) as executor:
             for i, page in enumerate(pages):
-                url = f"{BASE_URL}{page['image']}"
+                image = page.get("image")
+                if not image:
+                    logger.warning("Page %d missing image for chapter %s -- skipping", i, chapter_num_str)
+                    failed_pages.append(i)
+                    continue
+                url = f"{BASE_URL}{image}"
                 save_path = temp_dir / self.format_page_filename(i)
                 futures_map[executor.submit(self.download_image, url, save_path)] = i
 
