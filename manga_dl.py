@@ -33,6 +33,7 @@ file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(messa
 logger.addHandler(file_handler)
 
 BASE_URL = "https://atsu.moe"
+STATIC_BASE_URL = "https://cdn.atsu.moe"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json",
@@ -463,7 +464,7 @@ class MangaDownloader:
         poster = info.get("poster") or info.get("image") or info.get("cover")
         if not poster:
             return
-        url = f"{BASE_URL}{poster}" if not poster.startswith(("http://", "https://")) else poster
+        url = f"{STATIC_BASE_URL}{poster}" if not poster.startswith(("http://", "https://")) else poster
         save_path = series_dir / "cover.jpg"
         try:
             r = self.request_get(url, stream=True)
@@ -776,7 +777,7 @@ class MangaDownloader:
                     logger.warning("Page %d missing image for chapter %s -- skipping", i, chapter_num_str)
                     failed_pages.append(i)
                     continue
-                url = f"{BASE_URL}{image}"
+                url = f"{STATIC_BASE_URL}{image}"
                 save_path = temp_dir / self.format_page_filename(i)
                 futures_map[executor.submit(self.download_image, url, save_path)] = i
 
