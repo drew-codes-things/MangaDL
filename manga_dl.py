@@ -60,18 +60,11 @@ CONFIG_TYPE_CHECKS = {
 }
 
 
-
 def find_incomplete_cbz(download_path: Path) -> list:
-    """Return all *_INCOMPLETE.cbz paths under download_path."""
     return list(download_path.rglob("*_INCOMPLETE.cbz"))
 
 
 def find_incomplete_temp_dirs(temp_path: Path) -> list:
-    """
-    Return temp chapter dirs that exist but appear incomplete.
-    A dir is considered incomplete if it contains *any* .webp files but
-    is missing at least one page based on the highest page index found.
-    """
     incomplete = []
     if not temp_path.exists():
         return incomplete
@@ -97,11 +90,6 @@ def find_incomplete_temp_dirs(temp_path: Path) -> list:
 
 
 def check_and_offer_resume(downloader) -> list:
-    """
-    Scan for incomplete CBZ files and stale temp dirs.
-    Print a summary and ask the user whether to re-download them.
-    Returns a list of manga IDs to prepend to the run queue (may be empty).
-    """
     incomplete_cbz = find_incomplete_cbz(downloader.download_path)
     stale_temps = find_incomplete_temp_dirs(downloader.temp_path)
 
@@ -202,7 +190,6 @@ def check_and_offer_resume(downloader) -> list:
     return list(manga_ids_to_retry)
 
 
-
 class MangaDownloader:
     def __init__(self, dry_run=False, force=False, update_only=False, chapter_filter=None):
         self.config = self.load_config()
@@ -221,14 +208,6 @@ class MangaDownloader:
         self.ensure_dirs()
 
     def _parse_chapter_filter(self, raw):
-        """
-        Parse a chapter filter string like "1-10,42.5" into explicit values
-        plus inclusive ranges.
-
-        Ranges are matched as real intervals (lo <= num <= hi), so any decimal
-        chapter inside the range is included -- not just half-steps. Returns
-        {"values": set[float], "ranges": list[(lo, hi)]} or None.
-        """
         if not raw:
             return None
         values = set()
@@ -261,7 +240,6 @@ class MangaDownloader:
         return {"values": values, "ranges": ranges}
 
     def _chapter_matches(self, number):
-        """True if a chapter number passes the active chapter filter."""
         if not self.chapter_filter:
             return True
         try:
@@ -273,10 +251,6 @@ class MangaDownloader:
         return any(lo <= num <= hi for lo, hi in self.chapter_filter["ranges"])
 
     def _extract_manga_id(self, raw: str) -> str:
-        """
-        Accept either a raw manga ID or an atsu.moe URL and return a safe ID.
-        Returns an empty string if a URL is provided but does not include an ID.
-        """
         value = (raw or "").strip()
         if not value:
             return ""
@@ -353,12 +327,6 @@ class MangaDownloader:
             self.pending_downloaded_writes = 0
 
     def ensure_dirs(self):
-        """
-        Create the download and temp directories if they do not exist.
-
-        Temp subdirectories are NOT wiped here -- cleaning up stale temp dirs
-        is handled by check_and_offer_resume() before any download begins.
-        """
         self.download_path.mkdir(parents=True, exist_ok=True)
         self.temp_path.mkdir(parents=True, exist_ok=True)
 
@@ -391,14 +359,10 @@ class MangaDownloader:
         return f"{index:03d}.webp"
 
     def retry_delay(self, attempt: int) -> float:
-        """Exponential back-off: base * 2^attempt (e.g. 5s, 10s, 20s)."""
         base = self.config["retry_delay_seconds"]
         return base * (2 ** attempt)
 
     def request_get(self, url: str, params=None, stream: bool = False, allow_404: bool = False):
-        """
-        GET wrapper with retry/backoff for transient HTTP/network failures.
-        """
         for attempt in range(self.config["retry_attempts"]):
             try:
                 r = requests.get(
@@ -458,14 +422,27 @@ class MangaDownloader:
             return raw["mangaPage"]
         return raw
 
-    def download_cover(self, info: dict, series_dir: Path):
+    def cover_url(self, page_data: dict):
+        poster = page_data.get("poster") or page_data.get("image") or page_data.get("cover")
+        if isinstance(poster, dict):
+            poster = poster.get("image") or poster.get("largeImage")
+        if not poster or not isinstance(poster, str):
+            return None
+        if poster.startswith(("http://", "https://")):
+            return poster
+        path = poster.lstrip("/")
+        if not path.startswith("static/"):
+            path = f"static/{path}"
+        return f"{STATIC_BASE_URL}/{path}"
+
+    def download_cover(self, page_data: dict, series_dir: Path):
         if self.dry_run:
             return
-        poster = info.get("poster") or info.get("image") or info.get("cover")
-        if not poster:
+        url = self.cover_url(page_data)
+        if not url:
             return
-        url = f"{STATIC_BASE_URL}{poster}" if not poster.startswith(("http://", "https://")) else poster
-        save_path = series_dir / "cover.jpg"
+        extension = Path(url.split("?")[0]).suffix or ".jpg"
+        save_path = series_dir / f"cover{extension}"
         try:
             r = self.request_get(url, stream=True)
             if r is None:
@@ -562,14 +539,14 @@ class MangaDownloader:
         numbered_chapters = sorted(chapters_by_number.values(), key=sort_key)
         return numbered_chapters + unnumbered_chapters
 
-    def filter_alternative_names(self, names: list) -> list:
+    def filter_alternative_names(self, names: list, series_title: str = "") -> list:
         if not names:
             return []
         EXCLUDE = r'[\uAC00-\uD7A3]|[\u0600-\u06FF]|[\u0E00-\u0E7F]|[\u0400-\u04FF]'
         KEEP_JP = r'[\u3040-\u30FF\u4E00-\u9FFF]'
         KEEP_LATIN = r'^[\w\s\-.,:;!?\'\/()[\]\u00C0-\u024F]+$'
         result = []
-        seen = set()
+        seen = {series_title.strip()} if series_title else set()
         for name in names:
             n = name.strip()
             if not n or n in seen:
@@ -583,12 +560,12 @@ class MangaDownloader:
 
     def create_comic_info(self, manga_info: dict, chapter: dict, force_strip: bool = False) -> str:
         manga_type = manga_info.get("type", "Manga")
-        vertical = manga_type in ("Manwha", "Manhua") or force_strip
+        vertical = manga_type in ("Manwha", "Manhwa", "Manhua") or force_strip
         title = chapter.get("title") or f"Chapter {chapter.get('number')}"
         series = manga_info.get("title", "Unknown")
         number = str(chapter.get("number", ""))
         count = manga_info.get("totalChapterCount") or ""
-        alts = self.filter_alternative_names(manga_info.get("otherNames", []))
+        alts = self.filter_alternative_names(manga_info.get("otherNames", []), series)
         alt_series = " | ".join(alts) if alts else ""
         authors = manga_info.get("authors", [])
         writer = next((a["name"] for a in authors if a.get("type") == "Author"), "")
@@ -649,9 +626,7 @@ class MangaDownloader:
         logger.warning("Image download HTTP %s: %s", r.status_code, url)
         return False
 
-
     def dry_run_preview_manga(self, manga_id: str):
-        """Fetch metadata and print a preview of what would be downloaded without writing anything."""
         print(f"\n{'=' * 60}")
         print(f"  [DRY-RUN] Fetching metadata for: {manga_id}")
         print(f"{'=' * 60}")
@@ -727,7 +702,6 @@ class MangaDownloader:
         print(f"  Estimated files on disk: {total_pages + len(pending)}  "
               f"(pages + 1 ComicInfo.xml per chapter)")
         print()
-
 
     def process_chapter(self, manga_id: str, manga_info: dict, chapter: dict, force_strip=False):
         chapter_id = chapter["id"]
@@ -852,7 +826,6 @@ class MangaDownloader:
         return bool(remote_ids - local_ids)
 
     def count_new_chapters(self, manga_id: str):
-        """Return (title, new_chapter_count) without downloading. Count is None on fetch error."""
         info = self.get_manga_info(manga_id)
         page_data = self.get_manga_page(manga_id)
         if not info and not page_data:
@@ -876,7 +849,6 @@ class MangaDownloader:
         return ids
 
     def list_updates(self, ids: list):
-        """Print which tracked manga have new chapters, without downloading anything."""
         print("\n=== Update check (no downloads) ===")
         any_new = False
         for mid in ids:
@@ -893,13 +865,6 @@ class MangaDownloader:
         print()
 
     def watch(self, interval: int, ids: list = None):
-        """Daemon mode: periodically check for new chapters and download only those.
-
-        Each cycle does a lightweight count_new_chapters() pass first (one or two
-        cheap requests per manga) and only runs the full download pipeline for
-        titles that actually have new chapters -- avoiding a full process_manga()
-        fetch-and-build-chapter-list pass for titles that are already up to date.
-        """
         self.update_only = True
         logger.info("Watch mode: update check every %d seconds. Press Ctrl+C to stop.", interval)
         try:
@@ -946,7 +911,8 @@ class MangaDownloader:
             logger.error("Failed to fetch page data for %s", manga_id)
             return False
 
-        force_strip = page_data.get("forceStrip", False)
+        force_strip = bool(info.get("forceStrip") or page_data.get("forceStrip"))
+        manga_meta = {**page_data, **info}
         all_chapters = self.get_all_chapters(info, page_data)
         if not all_chapters:
             logger.error("No chapters found for %s", manga_id)
@@ -963,11 +929,11 @@ class MangaDownloader:
         type_folder = self.get_type_folder(info.get("type", "Manga"))
         series_dir = self.download_path / type_folder / self.sanitize_filename(info.get("title", "Unknown"))
         series_dir.mkdir(parents=True, exist_ok=True)
-        self.download_cover(info, series_dir)
+        self.download_cover(page_data, series_dir)
 
         counts = {"ok": 0, "skipped": 0, "failed": 0, "incomplete": 0}
         for chapter in chapters:
-            result = self.process_chapter(manga_id, info, chapter, force_strip)
+            result = self.process_chapter(manga_id, manga_meta, chapter, force_strip)
             counts[result] = counts.get(result, 0) + 1
 
         logger.info(

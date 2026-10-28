@@ -150,7 +150,7 @@ python manga_dl.py --check-resume
 downloads/
   Manga/
     Series Title/
-      cover.jpg
+      cover.png      (or .jpg - whatever format atsu.moe serves)
       Chapter 001.cbz
       Chapter 002.cbz
   Manwha/
