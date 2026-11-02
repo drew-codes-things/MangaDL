@@ -35,7 +35,7 @@ logger.addHandler(file_handler)
 BASE_URL = "https://atsu.moe"
 STATIC_BASE_URL = "https://cdn.atsu.moe"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "User-Agent": "StarMangaDL/1.0",
     "Accept": "application/json",
     "Referer": "https://atsu.moe/"
 }
