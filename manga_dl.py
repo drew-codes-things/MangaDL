@@ -60,6 +60,19 @@ CONFIG_TYPE_CHECKS = {
 }
 
 
+def partial_page_path(save_path: Path) -> Path:
+    return save_path.with_name(save_path.name + ".part")
+
+
+def page_already_downloaded(save_path: Path) -> bool:
+    return save_path.is_file() and save_path.stat().st_size > 0
+
+
+def remove_partial_pages(temp_dir: Path) -> None:
+    for leftover in temp_dir.glob("*.part"):
+        leftover.unlink()
+
+
 def find_incomplete_cbz(download_path: Path) -> list:
     return list(download_path.rglob("*_INCOMPLETE.cbz"))
 
@@ -106,13 +119,14 @@ def check_and_offer_resume(downloader) -> list:
             print(f"    * {p.relative_to(downloader.download_path)}")
 
     if stale_temps:
-        print(f"\n  {len(stale_temps)} stale temp folder(s) found:")
+        print(f"\n  {len(stale_temps)} half-finished chapter folder(s) found:")
         for d in stale_temps:
             pages = list(d.glob("*.webp"))
             print(f"    * {d.name}  ({len(pages)} page(s) on disk)")
 
     print()
-    answer = input("  Delete incomplete files and re-download affected chapters? [y/N]: ").strip().lower()
+    print("  Pages already on disk are kept, so only the missing pages are downloaded again.")
+    answer = input("  Delete incomplete CBZ files and re-queue the affected chapters? [y/N]: ").strip().lower()
     if answer != "y":
         print("  Skipping resume check -- incomplete files left as-is.\n")
         return []
@@ -125,11 +139,10 @@ def check_and_offer_resume(downloader) -> list:
             logger.warning("[RESUME] Could not delete %s: %s", p, e)
 
     for d in stale_temps:
-        try:
-            shutil.rmtree(d, ignore_errors=True)
-            logger.info("[RESUME] Deleted stale temp dir: %s", d)
-        except OSError as e:
-            logger.warning("[RESUME] Could not delete temp dir %s: %s", d, e)
+        remove_partial_pages(d)
+        if not any(d.iterdir()):
+            d.rmdir()
+            logger.info("[RESUME] Removed empty temp dir: %s", d)
 
     stale_chapter_ids = {d.name for d in stale_temps}
     manga_ids_to_retry = set()
@@ -616,9 +629,11 @@ class MangaDownloader:
             logger.error("Failed to download after %d attempts: %s", self.config["retry_attempts"], url)
             return False
         if r.status_code == 200:
-            with open(save_path, "wb") as f:
+            part_path = partial_page_path(save_path)
+            with open(part_path, "wb") as f:
                 for chunk in r.iter_content(8192):
                     f.write(chunk)
+            os.replace(part_path, save_path)
             return True
         if r.status_code == 404:
             logger.warning("Page 404: %s", url)
@@ -734,6 +749,7 @@ class MangaDownloader:
 
         temp_dir = self.temp_path / chapter_id
         temp_dir.mkdir(exist_ok=True)
+        remove_partial_pages(temp_dir)
 
         pages = self.get_chapter_pages(manga_id, chapter_id)
         if not pages:
@@ -743,6 +759,7 @@ class MangaDownloader:
         logger.info("Chapter %s: %d pages", chapter_num_str, len(pages))
 
         failed_pages = []
+        reused_pages = 0
         futures_map = {}
         with ThreadPoolExecutor(max_workers=self.config["page_workers"]) as executor:
             for i, page in enumerate(pages):
@@ -751,9 +768,14 @@ class MangaDownloader:
                     logger.warning("Page %d missing image for chapter %s -- skipping", i, chapter_num_str)
                     failed_pages.append(i)
                     continue
-                url = f"{STATIC_BASE_URL}{image}"
                 save_path = temp_dir / self.format_page_filename(i)
+                if page_already_downloaded(save_path):
+                    reused_pages += 1
+                    continue
+                url = f"{STATIC_BASE_URL}{image}"
                 futures_map[executor.submit(self.download_image, url, save_path)] = i
+            if reused_pages:
+                logger.info("[RESUME] Chapter %s: reusing %d page(s) already on disk", chapter_num_str, reused_pages)
 
             if TQDM_AVAILABLE:
                 with tqdm(total=len(futures_map), desc=f" Ch.{chapter_num_str}", unit="pg", leave=False) as bar:
@@ -788,7 +810,8 @@ class MangaDownloader:
         try:
             with zipfile.ZipFile(cbz_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 for file in sorted(temp_dir.glob("*")):
-                    zf.write(file, file.name)
+                    if file.suffix != ".part":
+                        zf.write(file, file.name)
         except Exception as e:
             logger.error("CBZ write failed for chapter %s: %s", chapter_num_str, e)
             return "failed"
@@ -797,7 +820,8 @@ class MangaDownloader:
             self._mark_downloaded(manga_id, chapter_id, manga_info, chapter)
 
         logger.info("%s %s", "[INCOMPLETE]" if incomplete else "[OK]", cbz_name)
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        if not incomplete:
+            shutil.rmtree(temp_dir, ignore_errors=True)
         return "incomplete" if incomplete else "ok"
 
     def _mark_downloaded(self, manga_id, chapter_id, manga_info, chapter):

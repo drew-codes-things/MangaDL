@@ -26,7 +26,7 @@ MangaDownloader fetches manga from [atsu.moe](https://atsu.moe), downloads each 
 | Preferred scan group | Auto-selected by highest chapter count, then most decimal chapters, then oldest upload |
 | Chapter filter | Download specific chapters or ranges (e.g. `1-10,42.5`) |
 | Dry-run mode | Preview what would be downloaded without writing any files |
-| Resume support | Detects `_INCOMPLETE.cbz` files and stale temp dirs, offers to re-download |
+| Resume support | Half-finished chapters keep their downloaded pages, so a retry only fetches the missing ones; `_INCOMPLETE.cbz` files are detected and re-queued |
 | Parallel downloads | Configurable page workers per chapter (default: 16) |
 | Exponential backoff | Retries on 429 and 5xx responses with configurable base delay |
 | Atomic state saves | `downloaded.json` written via `.tmp` rename to prevent corruption |
@@ -67,7 +67,7 @@ Copy `config.example.json` to `config.json`. On first run the tool creates `conf
 | Key | Description |
 |---|---|
 | `download_path` | Where finished CBZ files are saved |
-| `temp_path` | Temporary directory for in-progress page downloads |
+| `temp_path` | Temporary directory for in-progress page downloads. A chapter's folder is kept until every page has downloaded, so an interrupted or failed chapter picks up where it stopped |
 | `manga_workers` | Concurrent manga processed at once (CLI `--ids` mode) |
 | `page_workers` | Concurrent page downloads per chapter |
 | `retry_attempts` | Number of retries before giving up on a request |
@@ -125,6 +125,15 @@ python manga_dl.py --batch --update
 python manga_dl.py --check-resume
 ```
 
+### Tests
+
+```bash
+pip install -r requirements.txt pytest
+python -m pytest tests
+```
+
+The tests fake the network, so nothing is downloaded.
+
 ### Full CLI reference
 
 | Flag | Description |
@@ -140,7 +149,7 @@ python manga_dl.py --check-resume
 | `--list-updates` | Show which manga have new chapters (no downloads), then exit |
 | `--watch` | Daemon mode: keep checking for and downloading new chapters on a schedule |
 | `--interval SECONDS` | Seconds between checks in `--watch` mode (default: `3600`) |
-| `--check-resume` | Scan for incomplete downloads, offer to re-download, then exit |
+| `--check-resume` | Scan for incomplete downloads, offer to re-queue them (keeping pages already downloaded), then exit |
 
 ---
 
