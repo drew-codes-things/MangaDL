@@ -345,7 +345,7 @@ class MangaDownloader:
 
     def sanitize_filename(self, name: str) -> str:
         name = re.sub(r'[/\\:*?"<>|]', "", name)
-        return name.strip() or "Unknown"
+        return name.strip().rstrip(". ") or "Unknown"
 
     def get_type_folder(self, manga_type: str) -> str:
         if manga_type in ("Manwha", "Manhua"):
