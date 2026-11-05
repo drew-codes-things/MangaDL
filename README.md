@@ -9,6 +9,8 @@
 
 </div>
 
+![MangaDownloader's interactive menu](screenshot.png)
+
 ---
 
 ## Overview
