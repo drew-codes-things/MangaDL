@@ -72,6 +72,50 @@ def page_already_downloaded(save_path: Path) -> bool:
     return save_path.is_file() and save_path.stat().st_size > 0
 
 
+COMIC_INFO_NAME = "ComicInfo.xml"
+
+
+def partial_cbz_path(cbz_path: Path) -> Path:
+    return cbz_path.with_name(cbz_path.name + ".part")
+
+
+def read_archive_names(archive_path: Path):
+    if not zipfile.is_zipfile(archive_path):
+        return None
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            if archive.testzip() is not None:
+                return None
+            return archive.namelist()
+    except (zipfile.BadZipFile, OSError, EOFError):
+        return None
+
+
+def cbz_is_complete(cbz_path: Path) -> bool:
+    if not cbz_path.is_file():
+        return False
+    names = read_archive_names(cbz_path)
+    if not names or COMIC_INFO_NAME not in names:
+        return False
+    return any(name != COMIC_INFO_NAME for name in names)
+
+
+def write_cbz(source_dir: Path, cbz_path: Path) -> None:
+    entries = [file for file in sorted(source_dir.glob("*")) if file.suffix != ".part"]
+    part_path = partial_cbz_path(cbz_path)
+    try:
+        with zipfile.ZipFile(part_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in entries:
+                zf.write(file, file.name)
+        written = read_archive_names(part_path)
+        expected = [file.name for file in entries]
+        if written is None or sorted(written) != sorted(expected):
+            raise OSError(f"archive check failed for {part_path}: expected {len(expected)} entries")
+        os.replace(part_path, cbz_path)
+    finally:
+        part_path.unlink(missing_ok=True)
+
+
 def remove_partial_pages(temp_dir: Path) -> None:
     for leftover in temp_dir.glob("*.part"):
         leftover.unlink()
@@ -691,7 +735,7 @@ class MangaDownloader:
             cbz_ok = series_dir / self.format_chapter_filename(ch.get("number"), incomplete=False, chapter_id=ch_id)
             with self.downloaded_lock:
                 in_db = ch_id in self.downloaded.get(manga_id, {}).get("chapters", {})
-            if in_db or cbz_ok.exists():
+            if in_db or cbz_is_complete(cbz_ok):
                 already_done.append(ch)
             else:
                 pending.append(ch)
@@ -749,7 +793,7 @@ class MangaDownloader:
         type_folder = self.get_type_folder(manga_info.get("type", "Manga"))
         series_dir = self.download_path / type_folder / self.sanitize_filename(manga_info.get("title", "Unknown"))
 
-        if (series_dir / cbz_name_ok).exists() and not self.force:
+        if cbz_is_complete(series_dir / cbz_name_ok) and not self.force:
             logger.info("[SKIPPED] Chapter %s (cbz exists)", chapter_num_str)
             self._mark_downloaded(manga_id, chapter_id, manga_info, chapter)
             return "skipped"
@@ -812,7 +856,7 @@ class MangaDownloader:
         if incomplete:
             logger.warning("Chapter %s: %d page(s) failed -- marking INCOMPLETE", chapter_num_str, len(failed_pages))
 
-        with open(temp_dir / "ComicInfo.xml", "w", encoding="utf-8") as f:
+        with open(temp_dir / COMIC_INFO_NAME, "w", encoding="utf-8") as f:
             f.write(self.create_comic_info(manga_info, chapter, force_strip))
 
         series_dir.mkdir(parents=True, exist_ok=True)
@@ -820,10 +864,7 @@ class MangaDownloader:
         cbz_path = series_dir / cbz_name
 
         try:
-            with zipfile.ZipFile(cbz_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for file in sorted(temp_dir.glob("*")):
-                    if file.suffix != ".part":
-                        zf.write(file, file.name)
+            write_cbz(temp_dir, cbz_path)
         except Exception as e:
             logger.error("CBZ write failed for chapter %s: %s", chapter_num_str, e)
             return "failed"
