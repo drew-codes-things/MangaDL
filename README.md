@@ -145,7 +145,7 @@ The tests fake the network, so nothing is downloaded.
 | `--dry-run` | Preview without downloading |
 | `--force` | Re-download chapters even if they already exist |
 | `--update` | Only process manga with new chapters since last run |
-| `--chapters RANGE` | Comma-separated chapter numbers or ranges (e.g. `1-10,42.5`) |
+| `--chapters RANGE` | Comma-separated chapter numbers or ranges (e.g. `1-10,42.5`); an unreadable list stops with an error instead of downloading everything |
 | `--allow-adult` | Override `allow_adult=false` in config |
 | `--list` | Print all tracked manga with chapter counts, then exit |
 | `--list-updates` | Show which manga have new chapters (no downloads), then exit |

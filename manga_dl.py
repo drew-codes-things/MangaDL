@@ -59,6 +59,15 @@ CONFIG_TYPE_CHECKS = {
 }
 
 
+CHAPTER_NUMBER_PATTERN = r"\d+(?:\.\d+)?"
+CHAPTER_FILTER_HINT = "use chapter numbers and ranges such as 1-10,42.5"
+USAGE_ERROR_EXIT_CODE = 2
+
+
+class ChapterFilterError(ValueError):
+    pass
+
+
 def attach_log_file() -> None:
     file_handler = logging.FileHandler(LOG_FILE_NAME, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(message)s"))
@@ -277,31 +286,26 @@ class MangaDownloader:
             return None
         values = set()
         ranges = []
+        unreadable = []
         for part in [p.strip() for p in raw.split(",")]:
             if not part:
                 continue
-            range_match = re.match(r'^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$', part)
+            range_match = re.fullmatch(rf"({CHAPTER_NUMBER_PATTERN})-({CHAPTER_NUMBER_PATTERN})", part)
             if range_match:
                 lo = float(range_match.group(1))
                 hi = float(range_match.group(2))
                 if lo > hi:
                     lo, hi = hi, lo
                 ranges.append((lo, hi))
-            elif "-" in part:
-                logger.warning("[FILTER] Invalid chapter range '%s' -- skipping.", part)
+            elif re.fullmatch(CHAPTER_NUMBER_PATTERN, part):
+                values.add(float(part))
             else:
-                try:
-                    val = float(part)
-                    if val < 0:
-                        logger.warning(
-                            "[FILTER] Negative chapter number %s -- skipping.", val
-                        )
-                        continue
-                    values.add(val)
-                except (ValueError, TypeError):
-                    logger.warning("[FILTER] Could not parse chapter value '%s' -- skipping.", part)
+                unreadable.append(part)
+        if unreadable:
+            listed = ", ".join(repr(part) for part in unreadable)
+            raise ChapterFilterError(f"could not read chapter value(s) {listed}: {CHAPTER_FILTER_HINT}")
         if not values and not ranges:
-            return None
+            raise ChapterFilterError(f"no chapters given in {raw!r}: {CHAPTER_FILTER_HINT}")
         return {"values": values, "ranges": ranges}
 
     def _chapter_matches(self, number):
@@ -1115,19 +1119,22 @@ class MangaDownloader:
             print("Invalid manga URL/ID. Please provide a valid atsu.moe manga URL or ID.")
             return
 
-        if not normal:
-            self.dry_run = input("Dry-run only (preview)? [y/N]: ").strip().lower() == "y"
-            self.force = input("Force redownload? [y/N]: ").strip().lower() == "y"
-            ch = input("Specific chapters (e.g. 1-10,42.5) or Enter for all: ").strip()
-            self.chapter_filter = self._parse_chapter_filter(ch) if ch else None
+        try:
+            if not normal:
+                self.dry_run = input("Dry-run only (preview)? [y/N]: ").strip().lower() == "y"
+                self.force = input("Force redownload? [y/N]: ").strip().lower() == "y"
+                ch = input("Specific chapters (e.g. 1-10,42.5) or Enter for all: ").strip()
+                self.chapter_filter = self._parse_chapter_filter(ch) if ch else None
 
-        self.process_manga(manga_id)
-        self.reorder_manga_ids(manga_id)
-
-        if not normal:
-            self.dry_run = False
-            self.force = False
-            self.chapter_filter = None
+            self.process_manga(manga_id)
+            self.reorder_manga_ids(manga_id)
+        except ChapterFilterError as error:
+            print(f"Invalid chapter list: {error}")
+        finally:
+            if not normal:
+                self.dry_run = False
+                self.force = False
+                self.chapter_filter = None
 
     def run(self, cli_ids=None, batch=False):
         if cli_ids:
@@ -1247,12 +1254,16 @@ def can_prompt_for_resume(args, downloader) -> bool:
 def main():
     args = parse_args()
     attach_log_file()
-    downloader = MangaDownloader(
-        dry_run=args.dry_run,
-        force=args.force,
-        update_only=args.update,
-        chapter_filter=args.chapters
-    )
+    try:
+        downloader = MangaDownloader(
+            dry_run=args.dry_run,
+            force=args.force,
+            update_only=args.update,
+            chapter_filter=args.chapters
+        )
+    except ChapterFilterError as error:
+        print(f"--chapters: {error}", file=sys.stderr)
+        sys.exit(USAGE_ERROR_EXIT_CODE)
     if args.allow_adult:
         downloader.config["allow_adult"] = True
 
