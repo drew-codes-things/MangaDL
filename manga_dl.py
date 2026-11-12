@@ -1229,6 +1229,7 @@ class MangaDownloader:
                     failures += 1
                     continue
                 ids.append(resolved)
+            ids = list(dict.fromkeys(ids))
             if not ids:
                 logger.error("No valid manga IDs were provided.")
                 return failures
