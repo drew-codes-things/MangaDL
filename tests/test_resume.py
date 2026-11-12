@@ -112,3 +112,12 @@ def test_a_chapter_id_cannot_point_outside_the_temp_folder(downloader, tmp_path)
     hostile = {"id": "../documents", "number": 7, "title": "Trap"}
     assert downloader.process_chapter("m1", INFO, hostile) == "ok"
     assert sorted(path.name for path in keepsake.iterdir()) == ["thesis.txt"]
+
+
+def test_chapters_without_a_number_each_get_their_own_file(downloader):
+    first = {"id": "extra-a", "number": None, "title": "Side story"}
+    second = {"id": "extra-b", "number": None, "title": "Afterword"}
+    assert downloader.process_chapter("m1", INFO, first) == "ok"
+    assert downloader.process_chapter("m1", INFO, second) == "ok"
+    assert cbz_files(downloader) == ["Chapter 000 [extra-a].cbz", "Chapter 000 [extra-b].cbz"]
+

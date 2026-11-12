@@ -352,19 +352,24 @@ class MangaDownloader:
             return manga_type
         return "Manga"
 
-    def format_chapter_filename(self, number, incomplete: bool = False) -> str:
+    def chapter_number_label(self, number):
         if number is None:
+            return None
+        try:
+            num = float(number)
+            if num == int(num):
+                return f"{int(num):03d}"
+            int_part, frac_part = str(num).split(".")
+            return f"{int(int_part):03d}.{frac_part}"
+        except (ValueError, TypeError, OverflowError):
+            return None
+
+    def format_chapter_filename(self, number, incomplete: bool = False, chapter_id=None) -> str:
+        num_str = self.chapter_number_label(number)
+        if num_str is None:
             num_str = "000"
-        else:
-            try:
-                num = float(number)
-                if num == int(num):
-                    num_str = f"{int(num):03d}"
-                else:
-                    int_part, frac_part = str(num).split(".")
-                    num_str = f"{int(int_part):03d}.{frac_part}"
-            except (ValueError, TypeError, OverflowError):
-                num_str = "000"
+            if chapter_id is not None:
+                num_str += f" [{self.sanitize_filename(str(chapter_id))}]"
         suffix = "_INCOMPLETE" if incomplete else ""
         return f"Chapter {num_str}{suffix}.cbz"
 
@@ -679,7 +684,7 @@ class MangaDownloader:
         already_done = []
         for ch in chapters:
             ch_id = ch.get("id")
-            cbz_ok = series_dir / self.format_chapter_filename(ch.get("number"), incomplete=False)
+            cbz_ok = series_dir / self.format_chapter_filename(ch.get("number"), incomplete=False, chapter_id=ch_id)
             with self.downloaded_lock:
                 in_db = ch_id in self.downloaded.get(manga_id, {}).get("chapters", {})
             if in_db or cbz_ok.exists():
@@ -712,7 +717,7 @@ class MangaDownloader:
             pages = self.get_chapter_pages(manga_id, ch_id)
             page_count = len(pages)
             total_pages += page_count
-            cbz_name = self.format_chapter_filename(ch_num)[:35]
+            cbz_name = self.format_chapter_filename(ch.get("number"), chapter_id=ch_id)[:35]
             print(f"  {str(ch_num):>6}  {ch_title:<35}  {page_count:>5}  {cbz_name:<35}")
 
         print()
@@ -735,8 +740,8 @@ class MangaDownloader:
                     logger.info("[SKIPPED] Chapter %s (already downloaded)", chapter_num_str)
                     return "skipped"
 
-        cbz_name_ok = self.format_chapter_filename(chapter_num, incomplete=False)
-        cbz_name_inc = self.format_chapter_filename(chapter_num, incomplete=True)
+        cbz_name_ok = self.format_chapter_filename(chapter_num, incomplete=False, chapter_id=chapter_id)
+        cbz_name_inc = self.format_chapter_filename(chapter_num, incomplete=True, chapter_id=chapter_id)
         type_folder = self.get_type_folder(manga_info.get("type", "Manga"))
         series_dir = self.download_path / type_folder / self.sanitize_filename(manga_info.get("title", "Unknown"))
 
