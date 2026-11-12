@@ -63,6 +63,7 @@ CHAPTER_NUMBER_PATTERN = r"\d+(?:\.\d+)?"
 CHAPTER_FILTER_HINT = "use chapter numbers and ranges such as 1-10,42.5"
 USAGE_ERROR_EXIT_CODE = 2
 FAILURE_EXIT_CODE = 1
+MAX_RETRY_AFTER_SECONDS = 300
 ID_FILE_COMMENT_MARKER = "#"
 
 
@@ -484,7 +485,7 @@ class MangaDownloader:
                         retry_after = int(r.headers.get("Retry-After", 0) or 0)
                     except (TypeError, ValueError):
                         retry_after = 0
-                    delay = retry_after if retry_after > 0 else self.retry_delay(attempt)
+                    delay = min(retry_after, MAX_RETRY_AFTER_SECONDS) if retry_after > 0 else self.retry_delay(attempt)
                     logger.warning("429 Rate limited for %s, retrying in %.1fs", url, delay)
                     time.sleep(delay)
                     continue
