@@ -510,7 +510,11 @@ class MangaDownloader:
             logger.error("All retries exhausted for %s", url)
             return None
         if r.status_code == 200:
-            return r.json()
+            try:
+                return r.json()
+            except ValueError as error:
+                logger.error("Response from %s was not valid JSON: %s", url, error)
+                return None
         if r.status_code == 404:
             logger.warning("404 Not Found: %s", url)
             return None
@@ -1009,7 +1013,11 @@ class MangaDownloader:
                 else:
                     due = []
                     for mid in cycle_ids:
-                        title, new = self.count_new_chapters(mid)
+                        try:
+                            title, new = self.count_new_chapters(mid)
+                        except Exception:
+                            logger.exception("Update check failed for %s", mid)
+                            continue
                         if new:
                             logger.info("%s (%s): %d new chapter(s) -- queued", title, mid, new)
                             due.append(mid)
@@ -1111,11 +1119,23 @@ class MangaDownloader:
         for manga_id in ids:
             with self.downloaded_lock:
                 already = manga_id in self.downloaded
-            if not already or self.has_new_chapters(manga_id):
+            try:
+                needs_download = not already or self.has_new_chapters(manga_id)
+            except Exception:
+                logger.exception("Update check failed for %s", manga_id)
+                needs_download = True
+            if needs_download:
                 not_downloaded.append(manga_id)
             else:
                 completed.append(manga_id)
         return not_downloaded, completed
+
+    def process_manga_safely(self, manga_id: str, skip_update_check: bool = False) -> bool:
+        try:
+            return self.process_manga(manga_id, skip_update_check=skip_update_check)
+        except Exception:
+            logger.exception("Error processing %s", manga_id)
+            return False
 
     def show_list(self):
         print("\n=== Tracked Manga ===")
@@ -1134,14 +1154,14 @@ class MangaDownloader:
         if TQDM_AVAILABLE and len(ordered) > 1:
             with tqdm(total=len(ordered), desc="Overall Progress", unit="manga") as pbar:
                 for mid in ordered:
-                    if self.process_manga(mid, skip_update_check=True):
+                    if self.process_manga_safely(mid, skip_update_check=True):
                         self.reorder_manga_ids(mid)
                     pbar.update(1)
                     if self.config.get("delay_between_manga_seconds", 0) > 0:
                         time.sleep(self.config["delay_between_manga_seconds"])
         else:
             for mid in ordered:
-                if self.process_manga(mid, skip_update_check=True):
+                if self.process_manga_safely(mid, skip_update_check=True):
                     self.reorder_manga_ids(mid)
                 if self.config.get("delay_between_manga_seconds", 0) > 0:
                     time.sleep(self.config["delay_between_manga_seconds"])
