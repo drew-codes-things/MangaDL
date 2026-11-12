@@ -62,6 +62,7 @@ CONFIG_TYPE_CHECKS = {
 CHAPTER_NUMBER_PATTERN = r"\d+(?:\.\d+)?"
 CHAPTER_FILTER_HINT = "use chapter numbers and ranges such as 1-10,42.5"
 USAGE_ERROR_EXIT_CODE = 2
+ID_FILE_COMMENT_MARKER = "#"
 
 
 class ChapterFilterError(ValueError):
@@ -1034,8 +1035,9 @@ class MangaDownloader:
             path.write_text("# StarMangaDL -- manga IDs file\n# One ID per line. Lines starting with # are ignored.\n")
             logger.info("Created %s -- add manga IDs and re-run.", path)
             return []
-        with open(path, "r", encoding="utf-8") as f:
-            return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+        with open(path, "r", encoding="utf-8-sig") as f:
+            entries = [line.split(ID_FILE_COMMENT_MARKER, 1)[0].strip() for line in f]
+        return self.resolve_ids([entry for entry in entries if entry])
 
     def reorder_manga_ids(self, completed_id: str):
         path = Path(self.config["ids_file"])
