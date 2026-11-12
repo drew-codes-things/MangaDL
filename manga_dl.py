@@ -593,18 +593,22 @@ class MangaDownloader:
         candidates.sort(key=lambda g: group_oldest.get(g, float("inf")))
         return candidates[0]
 
+    def chapter_number_key(self, number):
+        if number is None or str(number).strip() == "":
+            return None
+        try:
+            return str(float(number))
+        except (TypeError, ValueError):
+            return str(number).strip()
+
     def build_chapter_list(self, all_chapters: list, preferred_group: str) -> list:
         chapters_by_number = {}
         unnumbered_chapters = []
         for ch in all_chapters:
-            num = ch.get("number")
-            if num is None or str(num).strip() == "":
+            key = self.chapter_number_key(ch.get("number"))
+            if key is None:
                 unnumbered_chapters.append(ch)
                 continue
-            try:
-                key = str(float(num))
-            except (TypeError, ValueError):
-                key = str(num).strip()
             if key not in chapters_by_number:
                 chapters_by_number[key] = ch
             elif ch.get("scanId") == preferred_group:
@@ -900,29 +904,39 @@ class MangaDownloader:
                 self.pending_downloaded_writes += 1
         self.flush_downloaded(force=False)
 
+    def count_missing_chapters(self, manga_id: str, info: dict, page_data: dict) -> int:
+        all_chapters = self.get_all_chapters(info, page_data)
+        remote_chapters = self.build_chapter_list(all_chapters, self.select_preferred_group(all_chapters))
+        with self.downloaded_lock:
+            local_chapters = dict(self.downloaded.get(manga_id, {}).get("chapters", {}))
+        local_number_keys = {self.chapter_number_key(data.get("number")) for data in local_chapters.values()}
+        local_number_keys.discard(None)
+        missing = 0
+        for chapter in remote_chapters:
+            if chapter["id"] in local_chapters:
+                continue
+            if self.chapter_number_key(chapter.get("number")) in local_number_keys:
+                continue
+            missing += 1
+        return missing
+
     def has_new_chapters(self, manga_id: str) -> bool:
         info = self.get_manga_info(manga_id)
         page_data = self.get_manga_page(manga_id)
         if not info and not page_data:
             return False
-        all_chapters = self.get_all_chapters(info or {}, page_data or {})
-        remote_ids = {ch["id"] for ch in all_chapters}
-        with self.downloaded_lock:
-            local_ids = set(self.downloaded.get(manga_id, {}).get("chapters", {}).keys())
-        return bool(remote_ids - local_ids)
+        return self.count_missing_chapters(manga_id, info or {}, page_data or {}) > 0
 
     def count_new_chapters(self, manga_id: str):
         info = self.get_manga_info(manga_id)
         page_data = self.get_manga_page(manga_id)
         if not info and not page_data:
             return manga_id, None
-        all_chapters = self.get_all_chapters(info or {}, page_data or {})
-        remote_ids = {ch["id"] for ch in all_chapters}
+        missing = self.count_missing_chapters(manga_id, info or {}, page_data or {})
         with self.downloaded_lock:
-            local = self.downloaded.get(manga_id, {})
-            local_ids = set(local.get("chapters", {}).keys())
-        title = (info or {}).get("title") or local.get("title") or manga_id
-        return title, len(remote_ids - local_ids)
+            local_title = self.downloaded.get(manga_id, {}).get("title")
+        title = (info or {}).get("title") or local_title or manga_id
+        return title, missing
 
     def resolve_ids(self, items: list) -> list:
         ids = []
