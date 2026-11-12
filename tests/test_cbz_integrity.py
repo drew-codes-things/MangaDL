@@ -42,7 +42,7 @@ def test_a_cbz_that_fails_mid_write_is_not_kept_or_recorded(site, monkeypatch):
     assert downloader.process_chapter(MANGA_ID, manga_info(site), CHAPTER) == "failed"
 
     assert list(series_dir(downloader).iterdir()) == []
-    assert MANGA_ID not in downloader.downloaded
+    assert CHAPTER["id"] not in downloader.downloaded.get(MANGA_ID, {}).get("chapters", {})
 
     disk["full"] = False
     assert downloader.process_chapter(MANGA_ID, manga_info(site), CHAPTER) == "ok"

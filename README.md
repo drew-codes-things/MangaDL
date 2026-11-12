@@ -171,6 +171,8 @@ downloads/
     ...
 ```
 
+If two different manga have titles that become the same folder name (for example `Re:Zero` and `ReZero`), the one recorded first in `downloaded.json` keeps `Series Title/` and the other is saved in `Series Title [manga-id]/`.
+
 Each CBZ contains:
 - `000.webp`, `001.webp`, ... (chapter pages)
 - `ComicInfo.xml` (series metadata)

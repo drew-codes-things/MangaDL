@@ -409,6 +409,24 @@ class MangaDownloader:
             return manga_type
         return "Manga"
 
+    def series_folder_owner(self, folder_name: str):
+        for manga_id, data in self.downloaded.items():
+            title = data.get("title")
+            if title and self.sanitize_filename(str(title)) == folder_name:
+                return manga_id
+        return None
+
+    def series_dir_for(self, manga_id: str, manga_info: dict, claim: bool = True) -> Path:
+        type_folder = self.get_type_folder(manga_info.get("type", "Manga"))
+        folder_name = self.sanitize_filename(str(manga_info.get("title") or "Unknown"))
+        with self.downloaded_lock:
+            owner = self.series_folder_owner(folder_name)
+            if owner is None and claim:
+                self.downloaded.setdefault(manga_id, {"title": manga_info.get("title"), "chapters": {}})
+        if owner is not None and owner != manga_id:
+            folder_name = f"{folder_name} [{self.sanitize_filename(str(manga_id))}]"
+        return self.download_path / type_folder / folder_name
+
     def chapter_number_label(self, number):
         if number is None:
             return None
@@ -731,8 +749,7 @@ class MangaDownloader:
 
         title = info.get("title", "Unknown")
         manga_type = info.get("type", "Manga")
-        type_folder = self.get_type_folder(manga_type)
-        series_dir = self.download_path / type_folder / self.sanitize_filename(title)
+        series_dir = self.series_dir_for(manga_id, info, claim=False)
 
         all_chapters = self.get_all_chapters(info, page_data)
         preferred = self.select_preferred_group(all_chapters)
@@ -803,8 +820,7 @@ class MangaDownloader:
 
         cbz_name_ok = self.format_chapter_filename(chapter_num, incomplete=False, chapter_id=chapter_id)
         cbz_name_inc = self.format_chapter_filename(chapter_num, incomplete=True, chapter_id=chapter_id)
-        type_folder = self.get_type_folder(manga_info.get("type", "Manga"))
-        series_dir = self.download_path / type_folder / self.sanitize_filename(manga_info.get("title", "Unknown"))
+        series_dir = self.series_dir_for(manga_id, manga_info)
 
         if cbz_is_complete(series_dir / cbz_name_ok) and not self.force:
             logger.info("[SKIPPED] Chapter %s (cbz exists)", chapter_num_str)
@@ -1026,8 +1042,7 @@ class MangaDownloader:
 
         logger.info("%d chapters to process | preferred group: %s", len(chapters), preferred)
 
-        type_folder = self.get_type_folder(info.get("type", "Manga"))
-        series_dir = self.download_path / type_folder / self.sanitize_filename(info.get("title", "Unknown"))
+        series_dir = self.series_dir_for(manga_id, info)
         series_dir.mkdir(parents=True, exist_ok=True)
         self.download_cover(page_data, series_dir)
 
