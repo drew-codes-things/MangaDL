@@ -62,6 +62,7 @@ CONFIG_TYPE_CHECKS = {
 CHAPTER_NUMBER_PATTERN = r"\d+(?:\.\d+)?"
 CHAPTER_FILTER_HINT = "use chapter numbers and ranges such as 1-10,42.5"
 USAGE_ERROR_EXIT_CODE = 2
+FAILURE_EXIT_CODE = 1
 ID_FILE_COMMENT_MARKER = "#"
 
 
@@ -750,24 +751,24 @@ class MangaDownloader:
         logger.warning("Image download HTTP %s: %s", r.status_code, url)
         return False
 
-    def dry_run_preview_manga(self, manga_id: str):
+    def dry_run_preview_manga(self, manga_id: str) -> bool:
         print(f"\n{'=' * 60}")
         print(f"  [DRY-RUN] Fetching metadata for: {manga_id}")
         print(f"{'=' * 60}")
 
         info = self.get_manga_info(manga_id)
         if not info:
-            print(f"  ERROR: ID '{manga_id}' not found on atsu.moe.")
-            return
+            print(f"  ERROR: Could not fetch manga info for '{manga_id}' (not found, network error or bad response).")
+            return False
 
         if info.get("isAdult") and not self.config.get("allow_adult", False):
             print(f"  SKIP: '{info.get('title')}' -- adult content (allow_adult=false in config).")
-            return
+            return True
 
         page_data = self.get_manga_page(manga_id)
         if not page_data:
             print(f"  ERROR: Could not fetch page data for '{manga_id}'.")
-            return
+            return False
 
         title = info.get("title", "Unknown")
         manga_type = info.get("type", "Manga")
@@ -800,7 +801,7 @@ class MangaDownloader:
         if not pending:
             print("  Nothing to download -- all chapters already present.")
             print()
-            return
+            return True
 
         first_num = pending[0].get("number", "?")
         last_num = pending[-1].get("number", "?")
@@ -825,6 +826,7 @@ class MangaDownloader:
         print(f"  Estimated files on disk: {total_pages + len(pending)}  "
               f"(pages + 1 ComicInfo.xml per chapter)")
         print()
+        return True
 
     def process_chapter(self, manga_id: str, manga_info: dict, chapter: dict, force_strip=False):
         chapter_id = chapter["id"]
@@ -986,12 +988,14 @@ class MangaDownloader:
                 logger.warning("Skipping invalid manga URL/ID: %s", item)
         return ids
 
-    def list_updates(self, ids: list):
+    def list_updates(self, ids: list) -> int:
         print("\n=== Update check (no downloads) ===")
         any_new = False
+        errors = 0
         for mid in ids:
             title, new = self.count_new_chapters(mid)
             if new is None:
+                errors += 1
                 print(f"  {mid} -> [error fetching]")
             elif new > 0:
                 any_new = True
@@ -1001,6 +1005,7 @@ class MangaDownloader:
         if not any_new:
             print("  No manga have new chapters.")
         print()
+        return errors
 
     def watch(self, interval: int, ids: list = None):
         self.update_only = True
@@ -1032,8 +1037,7 @@ class MangaDownloader:
 
     def process_manga(self, manga_id: str, skip_update_check: bool = False) -> bool:
         if self.dry_run:
-            self.dry_run_preview_manga(manga_id)
-            return True
+            return self.dry_run_preview_manga(manga_id)
 
         if self.update_only and not skip_update_check and not self.has_new_chapters(manga_id) and not self.force:
             logger.info("[SKIPPED] %s -- no new chapters", manga_id)
@@ -1042,11 +1046,14 @@ class MangaDownloader:
         logger.info("=== Processing %s ===", manga_id)
         info = self.get_manga_info(manga_id)
         if not info:
-            logger.error("[ERROR] ID %s not found on atsu.moe", manga_id)
+            logger.error(
+                "[ERROR] Could not fetch manga info for %s (not found, network error or bad response; see above)",
+                manga_id,
+            )
             return False
         if info.get("isAdult") and not self.config.get("allow_adult", False):
             logger.info("[SKIPPED] %s -- adult content", info.get("title"))
-            return False
+            return True
 
         page_data = self.get_manga_page(manga_id)
         if not page_data:
@@ -1145,17 +1152,20 @@ class MangaDownloader:
             print(f"  {mid} -> {title} ({count} chapters)")
         print()
 
-    def run_batch(self, ids: list):
+    def run_batch(self, ids: list) -> int:
         not_downloaded, completed_ids = self.split_ids_by_status(ids)
         total = len(ids)
         print(f" {total} manga found | {len(not_downloaded)} to download | {len(completed_ids)} already complete\n")
 
         ordered = not_downloaded + completed_ids
+        failures = 0
         if TQDM_AVAILABLE and len(ordered) > 1:
             with tqdm(total=len(ordered), desc="Overall Progress", unit="manga") as pbar:
                 for mid in ordered:
                     if self.process_manga_safely(mid, skip_update_check=True):
                         self.reorder_manga_ids(mid)
+                    else:
+                        failures += 1
                     pbar.update(1)
                     if self.config.get("delay_between_manga_seconds", 0) > 0:
                         time.sleep(self.config["delay_between_manga_seconds"])
@@ -1163,8 +1173,11 @@ class MangaDownloader:
             for mid in ordered:
                 if self.process_manga_safely(mid, skip_update_check=True):
                     self.reorder_manga_ids(mid)
+                else:
+                    failures += 1
                 if self.config.get("delay_between_manga_seconds", 0) > 0:
                     time.sleep(self.config["delay_between_manga_seconds"])
+        return failures
 
     def show_menu(self) -> str:
         print(BANNER)
@@ -1205,18 +1218,20 @@ class MangaDownloader:
                 self.force = False
                 self.chapter_filter = None
 
-    def run(self, cli_ids=None, batch=False):
+    def run(self, cli_ids=None, batch=False) -> int:
         if cli_ids:
             ids = []
+            failures = 0
             for item in cli_ids:
                 resolved = self._extract_manga_id(item)
                 if not resolved:
                     logger.warning("Skipping invalid manga URL/ID: %s", item)
+                    failures += 1
                     continue
                 ids.append(resolved)
             if not ids:
                 logger.error("No valid manga IDs were provided.")
-                return
+                return failures
             with ThreadPoolExecutor(max_workers=self.config["manga_workers"]) as executor:
                 futures = {executor.submit(self.process_manga, mid): mid for mid in ids}
                 for future in as_completed(futures):
@@ -1224,17 +1239,19 @@ class MangaDownloader:
                     try:
                         if future.result():
                             self.reorder_manga_ids(mid)
+                        else:
+                            failures += 1
                     except Exception as e:
                         logger.error("Error processing %s: %s", mid, e)
-            return
+                        failures += 1
+            return failures
 
         if batch or not self.config.get("menu_enabled", True):
             ids = self.load_manga_ids()
             if not ids:
                 print("No IDs in manga_ids.txt -- nothing to do.")
-                return
-            self.run_batch(ids)
-            return
+                return 0
+            return self.run_batch(ids)
 
         while True:
             choice = self.show_menu()
@@ -1266,7 +1283,7 @@ class MangaDownloader:
                 check_and_offer_resume(self)
             elif choice == "8":
                 print("Goodbye!")
-                break
+                return 0
             else:
                 print("Invalid option.")
 
@@ -1345,13 +1362,14 @@ def main():
         if not ids:
             print("No manga IDs to check.")
             return
-        downloader.list_updates(ids)
+        if downloader.list_updates(ids):
+            sys.exit(FAILURE_EXIT_CODE)
         return
 
     if args.watch:
         if args.interval < 1:
-            print("--interval must be at least 1 second.")
-            return
+            print("--interval must be at least 1 second.", file=sys.stderr)
+            sys.exit(USAGE_ERROR_EXIT_CODE)
         ids = downloader.resolve_ids(args.ids) if args.ids else None
         downloader.watch(args.interval, ids=ids)
         return
@@ -1363,8 +1381,11 @@ def main():
     if can_prompt_for_resume(args, downloader):
         check_and_offer_resume(downloader)
 
-    downloader.run(cli_ids=args.ids, batch=args.batch)
+    failures = downloader.run(cli_ids=args.ids, batch=args.batch)
     downloader.flush_downloaded(force=True)
+    if failures:
+        logger.error("%d manga did not finish -- see the errors above.", failures)
+        sys.exit(FAILURE_EXIT_CODE)
 
 
 if __name__ == "__main__":

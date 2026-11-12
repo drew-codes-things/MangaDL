@@ -153,6 +153,8 @@ The tests fake the network, so nothing is downloaded.
 | `--interval SECONDS` | Seconds between checks in `--watch` mode (default: `3600`) |
 | `--check-resume` | Scan for incomplete downloads, offer to re-queue them (keeping pages already downloaded), then exit |
 
+The process exits with `0` when everything finished, `1` when any manga failed, was left incomplete or could not be fetched (so scripts and cron jobs can notice), and `2` for an invalid `--chapters` list or `--interval`. Adult titles skipped by `allow_adult=false` do not count as failures.
+
 ---
 
 ## Output Structure
