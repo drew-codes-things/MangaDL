@@ -368,6 +368,9 @@ class MangaDownloader:
         suffix = "_INCOMPLETE" if incomplete else ""
         return f"Chapter {num_str}{suffix}.cbz"
 
+    def chapter_temp_dir(self, chapter_id) -> Path:
+        return self.temp_path / self.sanitize_filename(str(chapter_id))
+
     def format_page_filename(self, index: int) -> str:
         return f"{index:03d}.webp"
 
@@ -747,7 +750,7 @@ class MangaDownloader:
             logger.info("[RETRY] Deleting incomplete CBZ for chapter %s and re-downloading", chapter_num_str)
             incomplete_path.unlink()
 
-        temp_dir = self.temp_path / chapter_id
+        temp_dir = self.chapter_temp_dir(chapter_id)
         temp_dir.mkdir(exist_ok=True)
         remove_partial_pages(temp_dir)
 

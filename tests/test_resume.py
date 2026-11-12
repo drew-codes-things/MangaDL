@@ -103,3 +103,12 @@ def test_resume_check_keeps_downloaded_pages(downloader, monkeypatch):
     assert sorted(path.name for path in temp_dir.iterdir()) == ["000.webp", "002.webp"]
     assert not empty_dir.exists()
     assert downloader.downloaded["m9"]["chapters"] == {}
+
+
+def test_a_chapter_id_cannot_point_outside_the_temp_folder(downloader, tmp_path):
+    keepsake = tmp_path / "documents"
+    keepsake.mkdir()
+    (keepsake / "thesis.txt").write_text("irreplaceable")
+    hostile = {"id": "../documents", "number": 7, "title": "Trap"}
+    assert downloader.process_chapter("m1", INFO, hostile) == "ok"
+    assert sorted(path.name for path in keepsake.iterdir()) == ["thesis.txt"]
