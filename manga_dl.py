@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import json
 import time
 import shutil
@@ -174,7 +175,10 @@ def check_and_offer_resume(downloader) -> list:
 
     print()
     print("  Pages already on disk are kept, so only the missing pages are downloaded again.")
-    answer = input("  Delete incomplete CBZ files and re-queue the affected chapters? [y/N]: ").strip().lower()
+    try:
+        answer = input("  Delete incomplete CBZ files and re-queue the affected chapters? [y/N]: ").strip().lower()
+    except EOFError:
+        answer = ""
     if answer != "y":
         print("  Skipping resume check -- incomplete files left as-is.\n")
         return []
@@ -798,6 +802,11 @@ class MangaDownloader:
             self._mark_downloaded(manga_id, chapter_id, manga_info, chapter)
             return "skipped"
 
+        pages = self.get_chapter_pages(manga_id, chapter_id)
+        if not pages:
+            logger.error("No pages for chapter %s", chapter_num_str)
+            return "failed"
+
         incomplete_path = series_dir / cbz_name_inc
         if incomplete_path.exists():
             logger.info("[RETRY] Deleting incomplete CBZ for chapter %s and re-downloading", chapter_num_str)
@@ -806,11 +815,6 @@ class MangaDownloader:
         temp_dir = self.chapter_temp_dir(chapter_id)
         temp_dir.mkdir(exist_ok=True)
         remove_partial_pages(temp_dir)
-
-        pages = self.get_chapter_pages(manga_id, chapter_id)
-        if not pages:
-            logger.error("No pages for chapter %s", chapter_num_str)
-            return "failed"
 
         logger.info("Chapter %s: %d pages", chapter_num_str, len(pages))
 
@@ -1232,6 +1236,14 @@ examples:
     return p.parse_args()
 
 
+def can_prompt_for_resume(args, downloader) -> bool:
+    if args.dry_run or args.batch:
+        return False
+    if not args.ids and not downloader.config.get("menu_enabled", True):
+        return False
+    return sys.stdin.isatty()
+
+
 def main():
     args = parse_args()
     attach_log_file()
@@ -1268,7 +1280,7 @@ def main():
         check_and_offer_resume(downloader)
         return
 
-    if not args.dry_run:
+    if can_prompt_for_resume(args, downloader):
         check_and_offer_resume(downloader)
 
     downloader.run(cli_ids=args.ids, batch=args.batch)
