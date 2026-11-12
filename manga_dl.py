@@ -75,6 +75,16 @@ def attach_log_file() -> None:
     logger.addHandler(file_handler)
 
 
+GENERIC_BINARY_CONTENT_TYPE = "application/octet-stream"
+
+
+def is_page_content_type(content_type) -> bool:
+    if not content_type:
+        return True
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    return media_type.startswith("image/") or media_type == GENERIC_BINARY_CONTENT_TYPE
+
+
 def partial_page_path(save_path: Path) -> Path:
     return save_path.with_name(save_path.name + ".part")
 
@@ -716,10 +726,18 @@ class MangaDownloader:
             logger.error("Failed to download after %d attempts: %s", self.config["retry_attempts"], url)
             return False
         if r.status_code == 200:
+            content_type = r.headers.get("Content-Type")
+            if not is_page_content_type(content_type):
+                logger.warning("Page is not an image (Content-Type %s): %s", content_type, url)
+                return False
             part_path = partial_page_path(save_path)
             with open(part_path, "wb") as f:
                 for chunk in r.iter_content(8192):
                     f.write(chunk)
+            if part_path.stat().st_size == 0:
+                part_path.unlink()
+                logger.warning("Page body was empty: %s", url)
+                return False
             os.replace(part_path, save_path)
             return True
         if r.status_code == 404:

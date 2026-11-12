@@ -12,6 +12,7 @@ PAGES = [{"image": f"/p{i}.webp"} for i in range(4)]
 
 class FakeResponse:
     status_code = 200
+    headers = {}
 
     def __init__(self, body):
         self.body = body
@@ -76,6 +77,7 @@ def test_leftover_partial_pages_are_redownloaded(downloader):
 def test_failed_stream_leaves_no_page_file(downloader, tmp_path):
     class BrokenResponse:
         status_code = 200
+        headers = {}
 
         def iter_content(self, size):
             yield b"start"

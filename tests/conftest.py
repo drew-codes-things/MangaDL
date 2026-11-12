@@ -2,6 +2,7 @@ import json
 
 import pytest
 import requests
+from requests.structures import CaseInsensitiveDict
 
 import manga_dl
 
@@ -13,7 +14,7 @@ class FakeResponse:
     def __init__(self, status_code=200, body=b"", headers=None, payload=None):
         self.status_code = status_code
         self.body = body
-        self.headers = headers if headers is not None else {}
+        self.headers = CaseInsensitiveDict(headers or {})
         self.payload = payload
 
     def iter_content(self, size):
