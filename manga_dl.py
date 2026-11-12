@@ -28,9 +28,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S"
 )
 logger = logging.getLogger(__name__)
-file_handler = logging.FileHandler("StarMangaDL.log", encoding="utf-8")
-file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(message)s"))
-logger.addHandler(file_handler)
+LOG_FILE_NAME = "StarMangaDL.log"
 
 BASE_URL = "https://atsu.moe"
 STATIC_BASE_URL = "https://cdn.atsu.moe"
@@ -58,6 +56,12 @@ CONFIG_TYPE_CHECKS = {
     "ids_file": str,
     "allow_adult": bool,
 }
+
+
+def attach_log_file() -> None:
+    file_handler = logging.FileHandler(LOG_FILE_NAME, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(message)s"))
+    logger.addHandler(file_handler)
 
 
 def partial_page_path(save_path: Path) -> Path:
@@ -1189,6 +1193,7 @@ examples:
 
 def main():
     args = parse_args()
+    attach_log_file()
     downloader = MangaDownloader(
         dry_run=args.dry_run,
         force=args.force,

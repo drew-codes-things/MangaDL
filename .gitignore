@@ -11,3 +11,10 @@ node_modules/
 .env
 .env.*
 !.env.example
+config.json
+downloaded.json
+downloaded.json.bak
+downloaded.tmp
+downloads/
+temp/
+build/
